@@ -1,202 +1,437 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
 
+# ============================================================
+# CONFIGURAÇÃO
+# ============================================================
+
 st.set_page_config(
-    page_title="Dashboard - Efeito Fancy & Estratégia de Marketing",
-    page_icon="🍷",
+    page_title="Efeito Fancy - Dashboard",
+    page_icon="✨",
     layout="wide"
 )
 
-st.title("🍷 Dashboard Executivo: Análise do 'Efeito Fancy'")
-st.markdown("""
-Este painel analisa o comportamento de compra dos clientes, demonstra estatisticamente a existência do **"Efeito Fancy"** 
-e direciona a estratégia de Marketing para o público-alvo de maior retorno.
-""")
+st.title("✨ Efeito Fancy")
+st.markdown(
+    """
+    **Análise do comportamento dos clientes e impacto dos produtos Fancy
+    na rentabilidade.**
+    """
+)
+
+# ============================================================
+# CARREGAMENTO DOS DADOS
+# ============================================================
 
 @st.cache_data
-def load_data():
-    df = pd.read_csv('vendas_clientes_catalogo.csv')
-    df['receita_total'] = df['quantidade'] * df['preco_venda']
-    df['custo_total'] = df['quantidade'] * df['custo_producao']
-    df['margem_lucro'] = df['Lucro Bruto'] / df['receita_total']
-    
-    # Agrupamento por Cliente para calcular o Fancy Score
-    cliente_df = df.groupby('id_cliente').agg(
-        total_itens=('quantidade', 'sum'),
-        itens_fancy=('quantidade', lambda x: x[df.loc[x.index, 'linha'] == 'Fancy'].sum()),
-        total_pedidos=('id_pedido', 'count'),
-        pedidos_fancy=('linha', lambda x: (x == 'Fancy').sum()),
-        idade=('idade', 'first'),
-        renda_mensal=('renda_mensal', 'first'),
-        estado=('estado', 'first'),
-        canal_aquisicao=('canal_aquisicao', 'first'),
-        lucro_total=('Lucro Bruto', 'sum'),
-        receita_total=('receita_total', 'sum')
-    ).reset_index()
-    
-    # Cálculo do Fancy Score
-    cliente_df['fancy_score'] = cliente_df['itens_fancy'] / cliente_df['total_itens']
-    
-    # Faixas do Fancy Score
-    cliente_df['faixa_fancy'] = pd.cut(
-        cliente_df['fancy_score'], 
-        bins=[-0.01, 0, 0.25, 0.5, 0.75, 1.0], 
-        labels=['0% (Apenas Padrão)', '1-25%', '26-50%', '51-75%', '76-100% (Apenas Fancy)']
+def carregar_dados():
+    df = pd.read_csv("vendas_clientes_catalogo.csv")
+
+    # Identifica se a compra pertence à linha Fancy
+    df["is_fancy"] = (
+        df["linha"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .eq("fancy")
     )
-    
-    return df, cliente_df
 
-try:
-    df, cliente_df = load_data()
-except Exception as e:
-    st.error(f"Erro ao carregar o arquivo 'vendas_clientes_catalogo.csv': {e}")
-    st.stop()
+    return df
 
-# Filtros na Barra Lateral
-st.sidebar.header("🔍 Filtros de Análise")
-estados_sel = st.sidebar.multiselect("Estado (UF)", options=sorted(df['estado'].unique()), default=sorted(df['estado'].unique()))
-canais_sel = st.sidebar.multiselect("Canal de Aquisição", options=sorted(df['canal_aquisicao'].unique()), default=sorted(df['canal_aquisicao'].unique()))
 
-df_filtered = df[(df['estado'].isin(estados_sel)) & (df['canal_aquisicao'].isin(canais_sel))]
-cliente_filtered = cliente_df[(cliente_df['estado'].isin(estados_sel)) & (cliente_df['canal_aquisicao'].isin(canais_sel))]
+df = carregar_dados()
 
-# Cards de Métricas (KPIs)
+# ============================================================
+# SIDEBAR - FILTROS
+# ============================================================
+
+st.sidebar.header("Filtros")
+
+estados = st.sidebar.multiselect(
+    "Estado",
+    sorted(df["estado"].dropna().unique()),
+    default=sorted(df["estado"].dropna().unique())
+)
+
+canais = st.sidebar.multiselect(
+    "Canal de aquisição",
+    sorted(df["canal_aquisicao"].dropna().unique()),
+    default=sorted(df["canal_aquisicao"].dropna().unique())
+)
+
+categorias = st.sidebar.multiselect(
+    "Categoria",
+    sorted(df["categoria"].dropna().unique()),
+    default=sorted(df["categoria"].dropna().unique())
+)
+
+df_filtrado = df[
+    df["estado"].isin(estados)
+    & df["canal_aquisicao"].isin(canais)
+    & df["categoria"].isin(categorias)
+].copy()
+
+# ============================================================
+# FANCY SCORE POR CLIENTE
+# ============================================================
+
+clientes = (
+    df_filtrado
+    .groupby("id_cliente")
+    .agg(
+        total_compras=("id_pedido", "count"),
+        compras_fancy=("is_fancy", "sum"),
+        lucro_total=("Lucro Bruto", "sum"),
+        idade=("idade", "first"),
+        renda_mensal=("renda_mensal", "first"),
+        estado=("estado", "first"),
+        canal_aquisicao=("canal_aquisicao", "first")
+    )
+    .reset_index()
+)
+
+clientes["fancy_score"] = (
+    clientes["compras_fancy"]
+    / clientes["total_compras"]
+    * 100
+)
+
+clientes["lucro_medio_compra"] = (
+    clientes["lucro_total"]
+    / clientes["total_compras"]
+)
+
+# ============================================================
+# KPIs
+# ============================================================
+
+total_clientes = clientes["id_cliente"].nunique()
+total_compras = len(df_filtrado)
+
+fancy_score_medio = clientes["fancy_score"].mean()
+
+lucro_medio = df_filtrado["Lucro Bruto"].mean()
+
+percentual_fancy = df_filtrado["is_fancy"].mean() * 100
+
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Total de Clientes", f"{len(cliente_filtered):,}")
-col2.metric("Fancy Score Médio", f"{cliente_filtered['fancy_score'].mean()*100:.1f}%")
-col3.metric("Lucro Total Fancy", f"R$ {df_filtered[df_filtered['linha']=='Fancy']['Lucro Bruto'].sum():,.2f}")
-col4.metric("Lucro Total Padrão", f"R$ {df_filtered[df_filtered['linha']=='Padrão']['Lucro Bruto'].sum():,.2f}")
+
+col1.metric(
+    "Clientes",
+    f"{total_clientes:,}".replace(",", ".")
+)
+
+col2.metric(
+    "Compras",
+    f"{total_compras:,}".replace(",", ".")
+)
+
+col3.metric(
+    "Fancy Score médio",
+    f"{fancy_score_medio:.2f}%"
+)
+
+col4.metric(
+    "% de compras Fancy",
+    f"{percentual_fancy:.2f}%"
+)
 
 st.divider()
 
-# Seção 1: Fancy Score
-st.header("1. Análise do Fancy Score por Cliente")
-st.markdown("""
-O **Fancy Score** representa a proporção de itens da linha *Fancy* comprados em relação ao total de itens adquiridos pelo cliente:
-$$\\text{Fancy Score} = \\frac{\\text{Quantidade de Itens Fancy}}{\\text{Quantidade Total de Itens Comprados}}$$
-""")
+# ============================================================
+# GRÁFICO 1 - DISTRIBUIÇÃO DO FANCY SCORE
+# ============================================================
 
-col_a, col_b = st.columns([1, 1])
+st.subheader("📊 Fancy Score por cliente")
 
-with col_a:
-    fig_hist = px.histogram(
-        cliente_filtered, x='fancy_score', nbins=20,
-        title="Distribuição do Fancy Score entre Clientes",
-        labels={'fancy_score': 'Fancy Score (% de itens Fancy)', 'count': 'Número de Clientes'},
-        color_discrete_sequence=['#6b4c9a']
-    )
-    fig_hist.update_layout(bargap=0.1)
-    st.plotly_chart(fig_hist, use_container_width=True)
+fig_score = px.histogram(
+    clientes,
+    x="fancy_score",
+    nbins=20,
+    labels={
+        "fancy_score": "Fancy Score (%)",
+        "count": "Quantidade de clientes"
+    },
+    title="Distribuição do Fancy Score"
+)
 
-with col_b:
-    fig_box = px.box(
-        cliente_filtered, x='faixa_fancy', y='lucro_total',
-        title="Lucro Gerado por Faixa de Fancy Score",
-        labels={'faixa_fancy': 'Faixa de Fancy Score', 'lucro_total': 'Lucro Total Gerado (R$)'},
-        color='faixa_fancy', color_discrete_sequence=px.colors.sequential.Purples
-    )
-    st.plotly_chart(fig_box, use_container_width=True)
+fig_score.update_layout(
+    xaxis_title="Fancy Score (%)",
+    yaxis_title="Quantidade de clientes"
+)
 
-st.divider()
+st.plotly_chart(fig_score, use_container_width=True)
 
-# Seção 2: Prova Matemática do "Efeito Fancy"
-st.header("2. Prova Matemática do 'Efeito Fancy'")
+st.info(
+    """
+    **Fancy Score** representa a porcentagem das compras de cada cliente
+    que pertence à linha Fancy.
+    """
+)
 
-col_m1, col_m2 = st.columns(2)
+# ============================================================
+# SEGMENTAÇÃO DOS CLIENTES
+# ============================================================
 
-fancy_data = df_filtered[df_filtered['linha']=='Fancy']
-padrao_data = df_filtered[df_filtered['linha']=='Padrão']
+def classificar_fancy(score):
 
-# Cálculo nativo do Teste T de Welch sem biblioteca externa
-n1, n2 = len(fancy_data), len(padrao_data)
-m1, m2 = fancy_data['Lucro Bruto'].mean(), padrao_data['Lucro Bruto'].mean()
-v1, v2 = fancy_data['Lucro Bruto'].var(ddof=1), padrao_data['Lucro Bruto'].var(ddof=1)
+    if score == 0:
+        return "0% Fancy"
 
-if n1 > 1 and n2 > 1 and (v1/n1 + v2/n2) > 0:
-    t_stat = (m1 - m2) / np.sqrt((v1 / n1) + (v2 / n2))
-else:
-    t_stat = 0.0
+    elif score <= 25:
+        return "1–25% Fancy"
 
-with col_m1:
-    st.subheader("📊 Comparativo Financeiro por Pedido")
-    
-    rec_padrao = (padrao_data['quantidade']*padrao_data['preco_venda']).sum()
-    rec_fancy = (fancy_data['quantidade']*fancy_data['preco_venda']).sum()
-    
-    margem_padrao = (padrao_data['Lucro Bruto'].sum() / rec_padrao * 100) if rec_padrao > 0 else 0
-    margem_fancy = (fancy_data['Lucro Bruto'].sum() / rec_fancy * 100) if rec_fancy > 0 else 0
-    
-    comp_df = pd.DataFrame({
-        'Métrica': ['Preço Médio', 'Custo Médio', 'Lucro Médio/Pedido', 'Margem Bruta Global'],
-        'Padrão': [
-            f"R$ {padrao_data['preco_venda'].mean():.2f}" if n2 > 0 else "N/A",
-            f"R$ {padrao_data['custo_producao'].mean():.2f}" if n2 > 0 else "N/A",
-            f"R$ {m2:.2f}" if n2 > 0 else "N/A",
-            f"{margem_padrao:.1f}%"
-        ],
-        'Fancy': [
-            f"R$ {fancy_data['preco_venda'].mean():.2f}" if n1 > 0 else "N/A",
-            f"R$ {fancy_data['custo_producao'].mean():.2f}" if n1 > 0 else "N/A",
-            f"R$ {m1:.2f}" if n1 > 0 else "N/A",
-            f"{margem_fancy:.1f}%"
-        ],
-        'Diferença': [
-            f"+{((fancy_data['preco_venda'].mean()/padrao_data['preco_venda'].mean())-1)*100:.0f}%" if n1>0 and n2>0 else "N/A",
-            f"+{((fancy_data['custo_producao'].mean()/padrao_data['custo_producao'].mean())-1)*100:.0f}%" if n1>0 and n2>0 else "N/A",
-            f"+{((m1/m2)-1)*100:.0f}%" if m2>0 else "N/A",
-            f"+{(margem_fancy - margem_padrao):.1f} p.p."
-        ]
-    })
-    st.table(comp_df)
+    elif score <= 50:
+        return "26–50% Fancy"
 
-with col_m2:
-    st.subheader("🧪 Prova Estatística")
-    st.write(f"- **Lucro Médio/Pedido (Fancy):** `R$ {m1:.2f}`")
-    st.write(f"- **Lucro Médio/Pedido (Padrão):** `R$ {m2:.2f}`")
-    st.write(f"- **Razão de Rentabilidade:** Produtos Fancy geram **{(m1/m2):.1f}x** mais lucro por pedido.")
-    st.write(f"- **Estatística T (Teste Welch):** `t = {t_stat:.2f}`")
-    
-    if abs(t_stat) > 1.96:
-        st.success("✅ **Efeito Fancy Comprovado!** A estatística `t > 1.96` confirma com **mais de 95% de confiança estatística** que a linha Fancy possui lucro por pedido significativamente superior à linha Padrão.")
+    elif score <= 75:
+        return "51–75% Fancy"
+
     else:
-        st.warning("A variação atual nos filtros não apresenta significância estatística suficiente.")
+        return "76–100% Fancy"
+
+
+clientes["faixa_fancy"] = clientes["fancy_score"].apply(
+    classificar_fancy
+)
+
+# ============================================================
+# GRÁFICO 2 - FANCY SCORE X LUCRO
+# ============================================================
+
+st.subheader("💰 Efeito Fancy: Fancy Score x Lucro")
+
+fig_scatter = px.scatter(
+    clientes,
+    x="fancy_score",
+    y="lucro_medio_compra",
+    trendline="ols",
+    hover_data=[
+        "id_cliente",
+        "total_compras",
+        "idade",
+        "renda_mensal"
+    ],
+    labels={
+        "fancy_score": "Fancy Score (%)",
+        "lucro_medio_compra": "Lucro médio por compra (R$)"
+    },
+    title="Quanto maior o Fancy Score, maior tende a ser o lucro"
+)
+
+st.plotly_chart(fig_scatter, use_container_width=True)
+
+# ============================================================
+# CORRELAÇÃO
+# ============================================================
+
+correlacao = clientes[
+    ["fancy_score", "lucro_medio_compra"]
+].corr().iloc[0, 1]
+
+st.metric(
+    "Correlação entre Fancy Score e lucro médio",
+    f"{correlacao:.3f}"
+)
+
+st.markdown(
+    f"""
+    **Interpretação:** a correlação de **{correlacao:.3f}** indica uma
+    relação positiva forte entre a participação de produtos Fancy nas
+    compras do cliente e seu lucro médio por compra.
+    """
+)
+
+# ============================================================
+# COMPARAÇÃO < 50% X >= 50%
+# ============================================================
+
+st.subheader("📈 Comparação entre clientes")
+
+clientes_baixo = clientes[
+    clientes["fancy_score"] < 50
+]
+
+clientes_alto = clientes[
+    clientes["fancy_score"] >= 50
+]
+
+lucro_baixo = clientes_baixo["lucro_medio_compra"].mean()
+lucro_alto = clientes_alto["lucro_medio_compra"].mean()
+
+uplift = (
+    (lucro_alto - lucro_baixo)
+    / lucro_baixo
+    * 100
+)
+
+comparacao = pd.DataFrame({
+    "Grupo": [
+        "Fancy Score < 50%",
+        "Fancy Score ≥ 50%"
+    ],
+    "Lucro médio por compra": [
+        lucro_baixo,
+        lucro_alto
+    ]
+})
+
+fig_comparacao = px.bar(
+    comparacao,
+    x="Grupo",
+    y="Lucro médio por compra",
+    text_auto=".2f",
+    title="Lucro médio por compra por grupo"
+)
+
+st.plotly_chart(
+    fig_comparacao,
+    use_container_width=True
+)
+
+c1, c2, c3 = st.columns(3)
+
+c1.metric(
+    "Lucro médio < 50%",
+    f"R$ {lucro_baixo:.2f}"
+)
+
+c2.metric(
+    "Lucro médio ≥ 50%",
+    f"R$ {lucro_alto:.2f}"
+)
+
+c3.metric(
+    "Diferença",
+    f"+{uplift:.1f}%"
+)
+
+# ============================================================
+# PERFIL DO PÚBLICO-ALVO
+# ============================================================
 
 st.divider()
 
-# Seção 3: Data Storytelling & Marketing
-st.header("3. Data Storytelling: Qual o Público-Alvo Ideal para o Marketing?")
+st.subheader("🎯 Público-alvo recomendado")
 
-col_p1, col_p2 = st.columns(2)
+st.markdown(
+    """
+    ### Público prioritário
 
-with col_p1:
-    fig_canal = px.bar(
-        df_filtered.groupby(['canal_aquisicao', 'linha']).size().reset_index(name='count'),
-        x='canal_aquisicao', y='count', color='linha', barmode='group',
-        title="Vendas por Canal de Aquisição e Linha",
-        labels={'canal_aquisicao': 'Canal de Aquisição', 'count': 'Total de Pedidos'},
-        color_discrete_map={'Fancy': '#6b4c9a', 'Padrão': '#a8a8a8'}
+    O grupo de clientes com **Fancy Score ≥ 50%** apresenta maior
+    rentabilidade média e maior afinidade com produtos Fancy.
+
+    A recomendação é priorizar:
+
+    - Clientes com maior propensão a comprar produtos Fancy;
+    - Público mais jovem;
+    - Campanhas nos canais **TikTok** e **Instagram**;
+    - Estratégias de upsell e cross-sell de produtos Fancy.
+    """
+)
+
+# ============================================================
+# ANÁLISE POR CANAL
+# ============================================================
+
+canal = (
+    df_filtrado
+    .groupby("canal_aquisicao")
+    .agg(
+        compras=("id_pedido", "count"),
+        percentual_fancy=("is_fancy", "mean"),
+        lucro_medio=("Lucro Bruto", "mean")
     )
-    st.plotly_chart(fig_canal, use_container_width=True)
+    .reset_index()
+)
 
-with col_p2:
-    fig_scat = px.scatter(
-        cliente_filtered, x='idade', y='fancy_score', color='canal_aquisicao',
-        title="Relação entre Idade do Cliente e Fancy Score",
-        labels={'idade': 'Idade do Cliente', 'fancy_score': 'Fancy Score'},
-        opacity=0.6
+canal["percentual_fancy"] *= 100
+
+fig_canal = px.bar(
+    canal.sort_values("percentual_fancy", ascending=False),
+    x="canal_aquisicao",
+    y="percentual_fancy",
+    text_auto=".1f",
+    title="% de compras Fancy por canal",
+    labels={
+        "canal_aquisicao": "Canal",
+        "percentual_fancy": "% de compras Fancy"
+    }
+)
+
+st.plotly_chart(
+    fig_canal,
+    use_container_width=True
+)
+
+# ============================================================
+# ANÁLISE POR IDADE
+# ============================================================
+
+clientes["faixa_etaria"] = pd.cut(
+    clientes["idade"],
+    bins=[17, 25, 35, 45, 55, 70],
+    labels=[
+        "18–25",
+        "26–35",
+        "36–45",
+        "46–55",
+        "56–69"
+    ]
+)
+
+idade = (
+    clientes
+    .groupby("faixa_etaria", observed=False)
+    .agg(
+        fancy_score_medio=("fancy_score", "mean"),
+        lucro_medio=("lucro_medio_compra", "mean"),
+        clientes=("id_cliente", "count")
     )
-    st.plotly_chart(fig_scat, use_container_width=True)
+    .reset_index()
+)
 
-st.subheader("🎯 Recomendação Estratégica de Marketing")
-st.info("""
-1. **Perfil do Público-Alvo Recomendado:**
-   - **Faixa Etária:** Jovens e Jovens Adultos (**18 a 35 anos**) apresentam os maiores Fancy Scores.
-   - **Canais de Tração Principal:** **Instagram** e **TikTok** juntos concentram **mais de 64%** de todas as compras de produtos Fancy.
-   - **Comportamento:** O público consumidor da linha Fancy valoriza status, embalagens premium e experiência de consumo.
+fig_idade = px.bar(
+    idade,
+    x="faixa_etaria",
+    y="fancy_score_medio",
+    text_auto=".1f",
+    title="Fancy Score médio por faixa etária",
+    labels={
+        "faixa_etaria": "Faixa etária",
+        "fancy_score_medio": "Fancy Score médio (%)"
+    }
+)
 
-2. **Ações Práticas para o Time de Marketing:**
-   - Redirecionar orçamento de mídia paga do Google Ads/Orgânico para **Instagram Reels** e **TikTok**.
-   - Criar campanhas focadas na **exclusividade e sofisticação** dos produtos da linha Fancy (Vinhos, Cafés e Chocolates).
-""")
+st.plotly_chart(
+    fig_idade,
+    use_container_width=True
+)
+
+# ============================================================
+# CONCLUSÃO
+# ============================================================
+
+st.divider()
+
+st.subheader("🧠 Conclusão da análise")
+
+st.success(
+    f"""
+    O Efeito Fancy é evidenciado pela relação positiva entre o Fancy Score
+    e o lucro médio por compra. A correlação observada é de
+    **{correlacao:.3f}**.
+
+    Clientes com Fancy Score ≥ 50% apresentam lucro médio de
+    **R$ {lucro_alto:.2f}**, contra **R$ {lucro_baixo:.2f}** para clientes
+    com Fancy Score abaixo de 50%.
+
+    Isso representa uma diferença de aproximadamente
+    **{uplift:.1f}%** no lucro médio por compra.
+
+    Portanto, a estratégia recomendada é direcionar campanhas para
+    públicos com maior propensão a produtos Fancy, especialmente através
+    dos canais de maior afinidade com essa linha.
+    """
+)
