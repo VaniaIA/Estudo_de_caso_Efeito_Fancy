@@ -95,7 +95,7 @@ with col_b:
         cliente_filtered, x='faixa_fancy', y='lucro_total',
         title="Lucro Gerado por Faixa de Fancy Score",
         labels={'faixa_fancy': 'Faixa de Fancy Score', 'lucro_total': 'Lucro Total Gerado (R$)'},
-        color='faixa_fancy', color_discrete_sequence=px.colors.qualitative.Purples
+        color='faixa_fancy', color_discrete_sequence=px.colors.sequential.Purples
     )
     st.plotly_chart(fig_box, use_container_width=True)
 
@@ -109,7 +109,7 @@ col_m1, col_m2 = st.columns(2)
 fancy_data = df_filtered[df_filtered['linha']=='Fancy']
 padrao_data = df_filtered[df_filtered['linha']=='Padrão']
 
-# Cálculo nativo do Teste T de Welch sem biblioteca externa (SciPy)
+# Cálculo nativo do Teste T de Welch sem biblioteca externa
 n1, n2 = len(fancy_data), len(padrao_data)
 m1, m2 = fancy_data['Lucro Bruto'].mean(), padrao_data['Lucro Bruto'].mean()
 v1, v2 = fancy_data['Lucro Bruto'].var(ddof=1), padrao_data['Lucro Bruto'].var(ddof=1)
