@@ -1,9 +1,12 @@
+```python
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import numpy as np
+
 
 # ============================================================
-# CONFIGURAÇÃO
+# CONFIGURAÇÃO DO DASHBOARD
 # ============================================================
 
 st.set_page_config(
@@ -15,10 +18,14 @@ st.set_page_config(
 st.title("✨ Efeito Fancy")
 st.markdown(
     """
-    **Análise do comportamento dos clientes e impacto dos produtos Fancy
-    na rentabilidade.**
+    ### Análise do comportamento dos clientes e impacto dos produtos Fancy
+
+    Este dashboard calcula o **Fancy Score** de cada cliente e analisa
+    sua relação com o lucro médio por compra, buscando identificar
+    evidências do **Efeito Fancy** e apoiar decisões de Marketing.
     """
 )
+
 
 # ============================================================
 # CARREGAMENTO DOS DADOS
@@ -26,9 +33,10 @@ st.markdown(
 
 @st.cache_data
 def carregar_dados():
+
     df = pd.read_csv("vendas_clientes_catalogo.csv")
 
-    # Identifica se a compra pertence à linha Fancy
+    # Identifica compras da linha Fancy
     df["is_fancy"] = (
         df["linha"]
         .astype(str)
@@ -42,29 +50,50 @@ def carregar_dados():
 
 df = carregar_dados()
 
+
 # ============================================================
 # SIDEBAR - FILTROS
 # ============================================================
 
-st.sidebar.header("Filtros")
+st.sidebar.header("🔎 Filtros")
+
+estados_disponiveis = sorted(
+    df["estado"].dropna().unique()
+)
+
+canais_disponiveis = sorted(
+    df["canal_aquisicao"].dropna().unique()
+)
+
+categorias_disponiveis = sorted(
+    df["categoria"].dropna().unique()
+)
+
 
 estados = st.sidebar.multiselect(
     "Estado",
-    sorted(df["estado"].dropna().unique()),
-    default=sorted(df["estado"].dropna().unique())
+    estados_disponiveis,
+    default=estados_disponiveis
 )
+
 
 canais = st.sidebar.multiselect(
     "Canal de aquisição",
-    sorted(df["canal_aquisicao"].dropna().unique()),
-    default=sorted(df["canal_aquisicao"].dropna().unique())
+    canais_disponiveis,
+    default=canais_disponiveis
 )
+
 
 categorias = st.sidebar.multiselect(
     "Categoria",
-    sorted(df["categoria"].dropna().unique()),
-    default=sorted(df["categoria"].dropna().unique())
+    categorias_disponiveis,
+    default=categorias_disponiveis
 )
+
+
+# ============================================================
+# APLICAÇÃO DOS FILTROS
+# ============================================================
 
 df_filtrado = df[
     df["estado"].isin(estados)
@@ -72,8 +101,22 @@ df_filtrado = df[
     & df["categoria"].isin(categorias)
 ].copy()
 
+
 # ============================================================
-# FANCY SCORE POR CLIENTE
+# VALIDAÇÃO DOS DADOS
+# ============================================================
+
+if df_filtrado.empty:
+
+    st.warning(
+        "Nenhum registro encontrado com os filtros selecionados."
+    )
+
+    st.stop()
+
+
+# ============================================================
+# CÁLCULO DO FANCY SCORE POR CLIENTE
 # ============================================================
 
 clientes = (
@@ -91,59 +134,96 @@ clientes = (
     .reset_index()
 )
 
+
+# Fancy Score =
+# quantidade de compras Fancy / total de compras * 100
+
 clientes["fancy_score"] = (
     clientes["compras_fancy"]
     / clientes["total_compras"]
     * 100
 )
 
+
+# Lucro médio gerado por compra do cliente
+
 clientes["lucro_medio_compra"] = (
     clientes["lucro_total"]
     / clientes["total_compras"]
 )
 
+
 # ============================================================
-# KPIs
+# KPIs PRINCIPAIS
 # ============================================================
 
 total_clientes = clientes["id_cliente"].nunique()
+
 total_compras = len(df_filtrado)
 
 fancy_score_medio = clientes["fancy_score"].mean()
 
-lucro_medio = df_filtrado["Lucro Bruto"].mean()
+percentual_fancy = (
+    df_filtrado["is_fancy"].mean()
+    * 100
+)
 
-percentual_fancy = df_filtrado["is_fancy"].mean() * 100
+lucro_medio = (
+    df_filtrado["Lucro Bruto"].mean()
+)
+
 
 col1, col2, col3, col4 = st.columns(4)
 
+
 col1.metric(
-    "Clientes",
+    "👥 Clientes",
     f"{total_clientes:,}".replace(",", ".")
 )
 
+
 col2.metric(
-    "Compras",
+    "🛒 Compras",
     f"{total_compras:,}".replace(",", ".")
 )
 
+
 col3.metric(
-    "Fancy Score médio",
+    "✨ Fancy Score médio",
     f"{fancy_score_medio:.2f}%"
 )
 
+
 col4.metric(
-    "% de compras Fancy",
+    "📦 % de compras Fancy",
     f"{percentual_fancy:.2f}%"
 )
 
+
 st.divider()
 
+
 # ============================================================
-# GRÁFICO 1 - DISTRIBUIÇÃO DO FANCY SCORE
+# SEÇÃO 1 - FANCY SCORE
 # ============================================================
 
-st.subheader("📊 Fancy Score por cliente")
+st.header("1️⃣ Fancy Score por Cliente")
+
+st.markdown(
+    """
+    O **Fancy Score** representa a porcentagem das compras de cada
+    cliente que pertence à linha Fancy.
+
+    **Fórmula:**
+
+    Fancy Score = (Compras Fancy ÷ Total de Compras) × 100
+    """
+)
+
+
+# ============================================================
+# HISTOGRAMA DO FANCY SCORE
+# ============================================================
 
 fig_score = px.histogram(
     clientes,
@@ -153,25 +233,24 @@ fig_score = px.histogram(
         "fancy_score": "Fancy Score (%)",
         "count": "Quantidade de clientes"
     },
-    title="Distribuição do Fancy Score"
+    title="Distribuição do Fancy Score entre os clientes"
 )
+
 
 fig_score.update_layout(
     xaxis_title="Fancy Score (%)",
     yaxis_title="Quantidade de clientes"
 )
 
-st.plotly_chart(fig_score, use_container_width=True)
 
-st.info(
-    """
-    **Fancy Score** representa a porcentagem das compras de cada cliente
-    que pertence à linha Fancy.
-    """
+st.plotly_chart(
+    fig_score,
+    use_container_width=True
 )
 
+
 # ============================================================
-# SEGMENTAÇÃO DOS CLIENTES
+# SEGMENTAÇÃO DOS CLIENTES POR FANCY SCORE
 # ============================================================
 
 def classificar_fancy(score):
@@ -192,21 +271,140 @@ def classificar_fancy(score):
         return "76–100% Fancy"
 
 
-clientes["faixa_fancy"] = clientes["fancy_score"].apply(
-    classificar_fancy
+clientes["faixa_fancy"] = (
+    clientes["fancy_score"]
+    .apply(classificar_fancy)
 )
 
+
 # ============================================================
-# GRÁFICO 2 - FANCY SCORE X LUCRO
+# TABELA DE DISTRIBUIÇÃO
 # ============================================================
 
-st.subheader("💰 Efeito Fancy: Fancy Score x Lucro")
+distribuicao = (
+    clientes
+    .groupby("faixa_fancy")
+    .agg(
+        clientes=("id_cliente", "count"),
+        fancy_score_medio=("fancy_score", "mean"),
+        lucro_medio=("lucro_medio_compra", "mean")
+    )
+    .reset_index()
+)
+
+
+ordem_faixas = [
+    "0% Fancy",
+    "1–25% Fancy",
+    "26–50% Fancy",
+    "51–75% Fancy",
+    "76–100% Fancy"
+]
+
+
+distribuicao["faixa_fancy"] = pd.Categorical(
+    distribuicao["faixa_fancy"],
+    categories=ordem_faixas,
+    ordered=True
+)
+
+
+distribuicao = distribuicao.sort_values(
+    "faixa_fancy"
+)
+
+
+st.subheader("Distribuição dos clientes por faixa de Fancy Score")
+
+
+st.dataframe(
+    distribuicao,
+    use_container_width=True,
+    hide_index=True
+)
+
+
+# ============================================================
+# SEÇÃO 2 - EFEITO FANCY
+# ============================================================
+
+st.header("2️⃣ Efeito Fancy")
+
+st.markdown(
+    """
+    Para avaliar o Efeito Fancy, analisamos a relação entre o
+    **Fancy Score do cliente** e seu **lucro médio por compra**.
+    """
+)
+
+
+# ============================================================
+# DADOS PARA O GRÁFICO
+# ============================================================
+
+dados_scatter = clientes[
+    [
+        "id_cliente",
+        "fancy_score",
+        "lucro_medio_compra",
+        "total_compras",
+        "idade",
+        "renda_mensal"
+    ]
+].dropna()
+
+
+# ============================================================
+# CORRELAÇÃO DE PEARSON
+# ============================================================
+
+correlacao = dados_scatter[
+    "fancy_score"
+].corr(
+    dados_scatter["lucro_medio_compra"]
+)
+
+
+# ============================================================
+# REGRESSÃO LINEAR MANUAL
+# ============================================================
+#
+# Utilizamos numpy para calcular a linha de tendência.
+#
+# Isso evita o uso de:
+#
+# trendline="ols"
+#
+# que exige a instalação do statsmodels.
+# ============================================================
+
+x = dados_scatter["fancy_score"].values
+
+y = dados_scatter["lucro_medio_compra"].values
+
+
+coeficiente_angular, intercepto = np.polyfit(
+    x,
+    y,
+    1
+)
+
+
+dados_scatter["linha_tendencia"] = (
+    coeficiente_angular
+    * dados_scatter["fancy_score"]
+    + intercepto
+)
+
+
+# ============================================================
+# GRÁFICO DE DISPERSÃO
+# ============================================================
 
 fig_scatter = px.scatter(
-    clientes,
+    dados_scatter,
     x="fancy_score",
     y="lucro_medio_compra",
-    trendline="ols",
     hover_data=[
         "id_cliente",
         "total_compras",
@@ -217,123 +415,309 @@ fig_scatter = px.scatter(
         "fancy_score": "Fancy Score (%)",
         "lucro_medio_compra": "Lucro médio por compra (R$)"
     },
-    title="Quanto maior o Fancy Score, maior tende a ser o lucro"
+    title="Relação entre Fancy Score e Lucro Médio por Compra"
 )
 
-st.plotly_chart(fig_scatter, use_container_width=True)
 
-# ============================================================
-# CORRELAÇÃO
-# ============================================================
+# Adiciona a linha de tendência manualmente
 
-correlacao = clientes[
-    ["fancy_score", "lucro_medio_compra"]
-].corr().iloc[0, 1]
-
-st.metric(
-    "Correlação entre Fancy Score e lucro médio",
-    f"{correlacao:.3f}"
+fig_scatter.add_scatter(
+    x=dados_scatter["fancy_score"],
+    y=dados_scatter["linha_tendencia"],
+    mode="lines",
+    name="Linha de tendência"
 )
+
+
+st.plotly_chart(
+    fig_scatter,
+    use_container_width=True
+)
+
+
+# ============================================================
+# INDICADOR DE CORRELAÇÃO
+# ============================================================
+
+st.subheader("📐 Evidência matemática")
+
+
+col_corr, col_interpretacao = st.columns([1, 2])
+
+
+with col_corr:
+
+    st.metric(
+        "Correlação de Pearson",
+        f"{correlacao:.3f}"
+    )
+
+
+with col_interpretacao:
+
+    if correlacao >= 0.7:
+
+        st.success(
+            f"""
+            A correlação de **{correlacao:.3f}** indica uma relação
+            positiva forte entre o Fancy Score e o lucro médio por compra.
+            """
+        )
+
+    elif correlacao >= 0.3:
+
+        st.info(
+            f"""
+            A correlação de **{correlacao:.3f}** indica uma relação
+            positiva moderada entre as variáveis.
+            """
+        )
+
+    elif correlacao > -0.3:
+
+        st.warning(
+            f"""
+            A correlação de **{correlacao:.3f}** indica uma relação
+            linear fraca entre as variáveis.
+            """
+        )
+
+    else:
+
+        st.warning(
+            f"""
+            A correlação de **{correlacao:.3f}** indica uma relação
+            negativa entre as variáveis.
+            """
+        )
+
 
 st.markdown(
-    f"""
-    **Interpretação:** a correlação de **{correlacao:.3f}** indica uma
-    relação positiva forte entre a participação de produtos Fancy nas
-    compras do cliente e seu lucro médio por compra.
+    """
+    ### Como interpretar
+
+    A correlação de Pearson varia de **-1 a +1**.
+
+    - Próximo de **+1** → relação positiva forte
+    - Próximo de **0** → relação linear fraca
+    - Próximo de **-1** → relação negativa forte
+
+    Portanto, uma correlação positiva elevada indica que clientes com
+    maior participação de produtos Fancy tendem a apresentar maior
+    lucro médio por compra.
+
+    **Importante:** essa análise demonstra associação estatística,
+    mas não permite afirmar, sozinha, que a compra de produtos Fancy
+    causa o aumento do lucro.
     """
 )
 
+
 # ============================================================
-# COMPARAÇÃO < 50% X >= 50%
+# SEÇÃO 3 - COMPARAÇÃO ENTRE GRUPOS
 # ============================================================
 
-st.subheader("📈 Comparação entre clientes")
+st.header("3️⃣ Comparação: clientes com maior afinidade Fancy")
+
 
 clientes_baixo = clientes[
     clientes["fancy_score"] < 50
-]
+].copy()
+
 
 clientes_alto = clientes[
     clientes["fancy_score"] >= 50
-]
+].copy()
 
-lucro_baixo = clientes_baixo["lucro_medio_compra"].mean()
-lucro_alto = clientes_alto["lucro_medio_compra"].mean()
 
-uplift = (
-    (lucro_alto - lucro_baixo)
-    / lucro_baixo
-    * 100
+lucro_baixo = (
+    clientes_baixo["lucro_medio_compra"]
+    .mean()
 )
 
-comparacao = pd.DataFrame({
-    "Grupo": [
-        "Fancy Score < 50%",
-        "Fancy Score ≥ 50%"
-    ],
-    "Lucro médio por compra": [
-        lucro_baixo,
-        lucro_alto
-    ]
-})
+
+lucro_alto = (
+    clientes_alto["lucro_medio_compra"]
+    .mean()
+)
+
+
+# Calcula diferença percentual
+
+if lucro_baixo != 0:
+
+    uplift = (
+        (lucro_alto - lucro_baixo)
+        / lucro_baixo
+        * 100
+    )
+
+else:
+
+    uplift = 0
+
+
+# ============================================================
+# GRÁFICO COMPARATIVO
+# ============================================================
+
+comparacao = pd.DataFrame(
+    {
+        "Grupo": [
+            "Fancy Score < 50%",
+            "Fancy Score ≥ 50%"
+        ],
+        "Lucro médio por compra": [
+            lucro_baixo,
+            lucro_alto
+        ]
+    }
+)
+
 
 fig_comparacao = px.bar(
     comparacao,
     x="Grupo",
     y="Lucro médio por compra",
     text_auto=".2f",
-    title="Lucro médio por compra por grupo"
+    title="Lucro médio por compra por grupo",
+    labels={
+        "Grupo": "Grupo de clientes",
+        "Lucro médio por compra":
+            "Lucro médio por compra (R$)"
+    }
 )
+
 
 st.plotly_chart(
     fig_comparacao,
     use_container_width=True
 )
 
-c1, c2, c3 = st.columns(3)
 
-c1.metric(
+# ============================================================
+# KPIs DA COMPARAÇÃO
+# ============================================================
+
+col1, col2, col3 = st.columns(3)
+
+
+col1.metric(
     "Lucro médio < 50%",
     f"R$ {lucro_baixo:.2f}"
 )
 
-c2.metric(
+
+col2.metric(
     "Lucro médio ≥ 50%",
     f"R$ {lucro_alto:.2f}"
 )
 
-c3.metric(
+
+col3.metric(
     "Diferença",
     f"+{uplift:.1f}%"
 )
 
+
+st.markdown(
+    f"""
+    Clientes com **Fancy Score ≥ 50%** apresentam lucro médio de
+    **R$ {lucro_alto:.2f} por compra**, enquanto clientes com Fancy
+    Score abaixo de 50% apresentam lucro médio de
+    **R$ {lucro_baixo:.2f}**.
+
+    Isso representa uma diferença de aproximadamente
+    **{uplift:.1f}%**.
+    """
+)
+
+
 # ============================================================
-# PERFIL DO PÚBLICO-ALVO
+# SEÇÃO 4 - PÚBLICO-ALVO
 # ============================================================
 
 st.divider()
 
-st.subheader("🎯 Público-alvo recomendado")
+st.header("4️⃣ Público-alvo recomendado para Marketing")
+
+
+# ============================================================
+# PERFIL DOS DOIS GRUPOS
+# ============================================================
+
+idade_baixo = clientes_baixo["idade"].mean()
+idade_alto = clientes_alto["idade"].mean()
+
+renda_baixo = clientes_baixo["renda_mensal"].mean()
+renda_alto = clientes_alto["renda_mensal"].mean()
+
+percentual_clientes_alto = (
+    len(clientes_alto)
+    / len(clientes)
+    * 100
+)
+
+
+col1, col2, col3 = st.columns(3)
+
+
+col1.metric(
+    "Clientes com Fancy Score ≥ 50%",
+    f"{percentual_clientes_alto:.1f}%"
+)
+
+
+col2.metric(
+    "Idade média",
+    f"{idade_alto:.1f} anos"
+)
+
+
+col3.metric(
+    "Renda média",
+    f"R$ {renda_alto:,.2f}".replace(
+        ",", "X"
+    ).replace(
+        ".", ","
+    ).replace(
+        "X", "."
+    )
+)
+
 
 st.markdown(
-    """
-    ### Público prioritário
+    f"""
+    ### 🎯 Recomendação
 
     O grupo de clientes com **Fancy Score ≥ 50%** apresenta maior
-    rentabilidade média e maior afinidade com produtos Fancy.
+    afinidade com produtos Fancy e maior lucro médio por compra.
 
-    A recomendação é priorizar:
+    **Características do grupo:**
 
-    - Clientes com maior propensão a comprar produtos Fancy;
-    - Público mais jovem;
-    - Campanhas nos canais **TikTok** e **Instagram**;
-    - Estratégias de upsell e cross-sell de produtos Fancy.
+    - Fancy Score igual ou superior a 50%;
+    - Idade média de aproximadamente **{idade_alto:.1f} anos**;
+    - Renda mensal média de aproximadamente **R$ {renda_alto:,.2f}**;
+    - Maior rentabilidade média por compra.
+
+    **Estratégia recomendada:**
+
+    1. Identificar clientes com maior probabilidade de comprar produtos
+       Fancy;
+    2. Criar campanhas específicas para esse público;
+    3. Utilizar produtos Fancy em estratégias de upsell e cross-sell;
+    4. Priorizar os canais que apresentam maior participação de compras
+       Fancy.
     """
 )
 
+
 # ============================================================
-# ANÁLISE POR CANAL
+# SEÇÃO 5 - ANÁLISE POR CANAL
 # ============================================================
+
+st.header("5️⃣ Fancy Score por canal de aquisição")
+
 
 canal = (
     df_filtrado
@@ -346,28 +730,52 @@ canal = (
     .reset_index()
 )
 
+
 canal["percentual_fancy"] *= 100
 
+
+canal = canal.sort_values(
+    "percentual_fancy",
+    ascending=False
+)
+
+
+# ============================================================
+# GRÁFICO POR CANAL
+# ============================================================
+
 fig_canal = px.bar(
-    canal.sort_values("percentual_fancy", ascending=False),
+    canal,
     x="canal_aquisicao",
     y="percentual_fancy",
     text_auto=".1f",
     title="% de compras Fancy por canal",
     labels={
-        "canal_aquisicao": "Canal",
+        "canal_aquisicao": "Canal de aquisição",
         "percentual_fancy": "% de compras Fancy"
     }
 )
+
 
 st.plotly_chart(
     fig_canal,
     use_container_width=True
 )
 
+
+st.dataframe(
+    canal,
+    use_container_width=True,
+    hide_index=True
+)
+
+
 # ============================================================
-# ANÁLISE POR IDADE
+# SEÇÃO 6 - FANCY SCORE POR IDADE
 # ============================================================
+
+st.header("6️⃣ Fancy Score por faixa etária")
+
 
 clientes["faixa_etaria"] = pd.cut(
     clientes["idade"],
@@ -381,9 +789,13 @@ clientes["faixa_etaria"] = pd.cut(
     ]
 )
 
+
 idade = (
     clientes
-    .groupby("faixa_etaria", observed=False)
+    .groupby(
+        "faixa_etaria",
+        observed=False
+    )
     .agg(
         fancy_score_medio=("fancy_score", "mean"),
         lucro_medio=("lucro_medio_compra", "mean"),
@@ -391,6 +803,11 @@ idade = (
     )
     .reset_index()
 )
+
+
+# ============================================================
+# GRÁFICO POR IDADE
+# ============================================================
 
 fig_idade = px.bar(
     idade,
@@ -404,10 +821,12 @@ fig_idade = px.bar(
     }
 )
 
+
 st.plotly_chart(
     fig_idade,
     use_container_width=True
 )
+
 
 # ============================================================
 # CONCLUSÃO
@@ -415,23 +834,55 @@ st.plotly_chart(
 
 st.divider()
 
-st.subheader("🧠 Conclusão da análise")
+st.header("🧠 Conclusão da análise")
+
 
 st.success(
     f"""
-    O Efeito Fancy é evidenciado pela relação positiva entre o Fancy Score
-    e o lucro médio por compra. A correlação observada é de
-    **{correlacao:.3f}**.
+    ### Resultado do estudo
 
-    Clientes com Fancy Score ≥ 50% apresentam lucro médio de
-    **R$ {lucro_alto:.2f}**, contra **R$ {lucro_baixo:.2f}** para clientes
-    com Fancy Score abaixo de 50%.
+    O **Efeito Fancy** apresenta evidências estatísticas nos dados
+    analisados.
 
-    Isso representa uma diferença de aproximadamente
-    **{uplift:.1f}%** no lucro médio por compra.
+    O Fancy Score foi calculado individualmente para cada cliente,
+    representando a porcentagem de suas compras que pertence à linha
+    Fancy.
 
-    Portanto, a estratégia recomendada é direcionar campanhas para
-    públicos com maior propensão a produtos Fancy, especialmente através
-    dos canais de maior afinidade com essa linha.
+    A correlação entre Fancy Score e lucro médio por compra foi de
+    **{correlacao:.3f}**, indicando uma relação positiva entre essas
+    duas variáveis.
+
+    Além disso, clientes com Fancy Score ≥ 50% apresentaram lucro médio
+    de **R$ {lucro_alto:.2f} por compra**, enquanto clientes com
+    Fancy Score < 50% apresentaram **R$ {lucro_baixo:.2f}**.
+
+    A diferença entre os grupos foi de aproximadamente
+    **{uplift:.1f}%**.
+
+    ### Recomendação para Marketing
+
+    A empresa deve priorizar clientes com maior propensão a comprar
+    produtos Fancy, utilizando campanhas segmentadas e estratégias
+    de upsell e cross-sell.
+
+    Os canais com maior participação de compras Fancy devem receber
+    atenção especial nas próximas campanhas.
+
+    **Observação:** os resultados demonstram associação estatística
+    entre Fancy Score e rentabilidade. Isso não significa,
+    necessariamente, que a compra de produtos Fancy seja a causa
+    direta do aumento do lucro.
     """
 )
+
+
+# ============================================================
+# RODAPÉ
+# ============================================================
+
+st.divider()
+
+st.caption(
+    "Dashboard desenvolvido para o estudo de caso — Efeito Fancy"
+)
+```
